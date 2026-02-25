@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Cold City - Graffiti Edition</title>
+    <style>
+        :root {
+            --p-size: 4px;
+            --asphalt: #24292e;
+            --grass: #1b2e1b;
+            --car-blue: #4a90e2;
+            --window-on: #f1c40f;
+            --curb: #7f8c8d;
+            --graffiti-pink: #ff007f;
+        }
+
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+
+        /* MENÜ STÍLUS */
+        #menu-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 2000;
+        }
+
+        #menu-box {
+            background: #1a252f;
+            border: var(--p-size) solid var(--car-blue);
+            padding: 30px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 0 30px rgba(74, 144, 226, 0.5);
+        }
+
+        .pixel-btn {
+            background: var(--car-blue);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+            border-bottom: 5px solid #214d80;
+        }
+
+        /* JÁTÉK ELEMEK */
+        #game-container {
+            position: relative; width: 100vw; height: 100vh;
+            display: flex; justify-content: center; background: var(--grass);
+            transition: filter 1s ease;
+        }
+
+        #road {
+            position: relative; width: 480px; height: 100%;
+            background: var(--asphalt);
+            border-left: 12px solid var(--curb);
+            border-right: 12px solid var(--curb);
+            overflow: hidden;
+        }
+
+        .lane-line {
+            position: absolute; left: 50%; transform: translateX(-50%);
+            width: 4px; height: 40px; background: rgba(255,255,255,0.15);
+        }
+
+        .scenery { position: absolute; top: 0; width: calc((100vw - 520px) / 2); height: 100%; overflow: hidden; }
+        .left-side { left: 0; } .right-side { right: 0; }
+
+        .building { position: absolute; width: 160px; background: #34495e; border: var(--p-size) solid #1a252f; }
+
+        #player {
+            position: absolute; bottom: 40px; width: 44px; height: 80px;
+            background: var(--car-blue); border-radius: 6px; z-index: 100;
+            transition: left 0.12s ease-out;
+            box-shadow: inset -4px -8px 0 rgba(0,0,0,0.3);
+        }
+
+        .npc { position: absolute; width: 44px; height: 75px; border-radius: 4px; z-index: 50; border: 2px solid #000; }
+
+        #hud {
+            position: fixed; top: 20px; left: 20px; z-index: 500;
+            background: rgba(0,0,0,0.85); color: #fff; padding: 15px;
+            border: 2px solid var(--car-blue); display: none;
+        }
+
+        /* GRAFFITI ANIMÁCIÓ */
+        #graffiti-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.4);
+            z-index: 4000;
+            pointer-events: none;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        .graffiti-text {
+            font-family: 'Comic Sans MS', 'Brush Script MT', cursive;
+            font-size: 80px;
+            color: var(--graffiti-pink);
+            text-shadow: 
+                0 0 10px #fff,
+                0 0 20px var(--graffiti-pink),
+                5px 5px 0px rgba(0,0,0,0.5);
+            opacity: 0;
+            transform: scale(0.5) rotate(-10deg);
+        }
+
+        @keyframes sprayPaint {
+            0% { opacity: 0; transform: scale(0.5) rotate(-10deg); filter: blur(10px); }
+            50% { opacity: 1; filter: blur(2px); }
+            100% { opacity: 1; transform: scale(1.1) rotate(-5deg); filter: blur(0px); }
+        }
+
+        .spray-active {
+            animation: sprayPaint 1.5s forwards ease-in-out;
+        }
+
+        /* VIDEÓ RÉTEG */
+        #video-container {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 3000;
+        }
+        video { width: 100%; height: 100%; object-fit: cover; }
+    </style>
+</head>
+<body>
+
+    <div id="menu-overlay">
+        <div id="menu-box">
+            <h1 style="color: var(--car-blue)">COLD CITY SLALOM</h1>
+            <p>IRÁNYÍTÁS: NYILAK / WASD</p>
+            <button class="pixel-btn" onclick="startGame()">INDÍTÁS</button>
+        </div>
+    </div>
+
+    <div id="hud">
+        TIME: <span id="time">0</span>s | DODGED: <span id="score">0</span>
+    </div>
+
+    <div id="game-container">
+        <div class="scenery left-side" id="env-l"></div>
+        <div id="road">
+            <div id="player" style="left: 218px;"></div>
+        </div>
+        <div class="scenery right-side" id="env-r"></div>
+    </div>
+
+    <div id="video-container">
+        <video id="local-video">
+            <source src="video.mp4" type="video/mp4">
+        </video>
+    </div>
+
+    <div id="graffiti-overlay">
+        <div class="graffiti-text" id="graffiti">GOT RICK ROLLED!</div>
+    </div>
+
+    <script>
+        const road = document.getElementById('road');
+        const player = document.getElementById('player');
+        const envL = document.getElementById('env-l');
+        const envR = document.getElementById('env-r');
+        const graffiti = document.getElementById('graffiti');
+        const video = document.getElementById('local-video');
+        
+        let pX = 218;
+        let score = 0;
+        let gameActive = false;
+        let startTime;
+
+        function startGame() {
+            document.getElementById('menu-overlay').style.display = 'none';
+            document.getElementById('hud').style.display = 'block';
+            gameActive = true;
+            startTime = Date.now();
+            
+            setInterval(spawnNPC, 600);
+            setInterval(spawnScenery, 1000);
+            setInterval(updateClock, 100);
+            
+            setInterval(() => {
+                if(!gameActive) return;
+                const line = document.createElement('div');
+                line.className = 'lane-line';
+                line.style.top = '-50px';
+                road.appendChild(line);
+                animateMove(line, 14);
+            }, 150);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if(!gameActive) return;
+            if((e.key === "ArrowLeft" || e.key === "a") && pX > 50) pX -= 120;
+            if((e.key === "ArrowRight" || e.key === "d") && pX < 350) pX += 120;
+            player.style.left = pX + 'px';
+        });
+
+        function animateMove(obj, speed) {
+            let top = -450;
+            let move = setInterval(() => {
+                if(!gameActive) { clearInterval(move); obj.remove(); return; }
+                top += speed;
+                obj.style.top = top + 'px';
+                if(top > window.innerHeight) { clearInterval(move); obj.remove(); }
+            }, 20);
+        }
+
+        function spawnNPC() {
+            if(!gameActive) return;
+            const npc = document.createElement('div');
+            npc.className = 'npc';
+            const lanes = [38, 158, 278, 398];
+            npc.style.left = lanes[Math.floor(Math.random()*lanes.length)] + 'px';
+            npc.style.top = '-100px';
+            npc.style.background = '#34495e';
+            road.appendChild(npc);
+
+            let speed = 7 + Math.random() * 8;
+            let passed = false;
+            let move = setInterval(() => {
+                if(!gameActive) { clearInterval(move); npc.remove(); return; }
+                let top = parseInt(npc.style.top) + speed;
+                npc.style.top = top + 'px';
+                if(top > 550 && !passed) { passed = true; score++; document.getElementById('score').innerText = score; }
+                if(top > window.innerHeight) { clearInterval(move); npc.remove(); }
+            }, 20);
+        }
+
+        function spawnScenery() {
+            if(!gameActive) return;
+            const side = Math.random() > 0.5 ? envL : envR;
+            const el = document.createElement('div');
+            el.className = 'building';
+            el.style.height = (200 + Math.random()*200) + 'px';
+            el.style.top = '-450px';
+            side.appendChild(el);
+            animateMove(el, 6);
+        }
+
+        function updateClock() {
+            if(!gameActive) return;
+            let elapsed = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('time').innerText = elapsed;
+            
+            if(elapsed >= 15) {
+                gameActive = false;
+                // Videó indítása
+                document.getElementById('video-container').style.display = 'block';
+                video.play();
+                
+                // Graffiti animáció indítása 0.5mp múlva
+                setTimeout(() => {
+                    document.getElementById('graffiti-overlay').style.display = 'flex';
+                    graffiti.classList.add('spray-active');
+                }, 500);
+            }
+        }
+    </script>
+</body>
+</html>
